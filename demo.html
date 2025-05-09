@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paper Trading Widget Demo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .trade-card {
+      margin-bottom: 15px;
+      transition: all 0.3s ease;
+    }
+    .profit {
+      color: green;
+      font-weight: bold;
+    }
+    .loss {
+      color: red;
+      font-weight: bold;
+    }
+    .price-update {
+      animation: flash 1s;
+    }
+    @keyframes flash {
+      0% { background-color: rgba(255, 255, 0, 0.5); }
+      100% { background-color: transparent; }
+    }
+    .api-call {
+      background-color: #f8f9fa;
+      border-radius: 5px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+    .api-call pre {
+      margin-bottom: 0;
+    }
+    .api-response {
+      background-color: #e9ecef;
+      border-radius: 5px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+    .event-log {
+      height: 200px;
+      overflow-y: auto;
+      background-color: #212529;
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+    }
+    .log-entry {
+      margin-bottom: 5px;
+    }
+    .log-time {
+      color: #6c757d;
+    }
+    .log-event {
+      color: #20c997;
+    }
+    .log-data {
+      color: #ffc107;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-4">
+    <h1 class="mb-4">Paper Trading Widget Demo</h1>
+    
+    <div class="row mb-4">
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">
+            <h5>Create Paper Trade</h5>
+          </div>
+          <div class="card-body">
+            <div class="api-call">
+              <h6>API Call: POST /api/paper-trade/order</h6>
+              <pre>{
+  "symbol": "NIFTY",
+  "strike": "24000",
+  "optionType": "CE",
+  "action": "BUY",
+  "lotSize": 75,
+  "contractToken": "43854",
+  "expiry": "09 Apr, 2025"
+}</pre>
+              <button id="createTradeBtn" class="btn btn-primary mt-3">Execute API Call</button>
+              <div id="createTradeResponse" class="api-response" style="display: none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-6">
+        <div class="card">
+          <div class="card-header">
+            <h5>Square Off Trade</h5>
+          </div>
+          <div class="card-body">
+            <div class="api-call">
+              <h6>API Call: POST /api/paper-trade/square-off</h6>
+              <pre>{
+  "orderId": "<span id="squareOffOrderId">ord_123abc</span>"
+}</pre>
+              <button id="squareOffBtn" class="btn btn-danger mt-3" disabled>Execute API Call</button>
+              <div id="squareOffResponse" class="api-response" style="display: none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="row mb-4">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5>Active Trade</h5>
+            <div>
+              <span id="marketStatus" class="badge bg-success">Market Open</span>
+              <button id="refreshBtn" class="btn btn-sm btn-outline-secondary ms-2">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div id="activeTrade" class="row">
+              <div class="col-12 text-center">
+                <p>No active trades</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="row">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header">
+            <h5>WebSocket Events</h5>
+          </div>
+          <div class="card-body">
+            <div id="eventLog" class="event-log"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Trade Card Template -->
+  <template id="tradeCardTemplate">
+    <div class="col-md-12">
+      <div class="card trade-card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="trade-symbol mb-0"></h6>
+          <span class="badge"></span>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6">
+              <div class="d-flex justify-content-between mb-2">
+                <span>Order ID:</span>
+                <span class="order-id"></span>
+              </div>
+              <div class="d-flex justify-content-between mb-2">
+                <span>Entry Price:</span>
+                <span class="entry-price"></span>
+              </div>
+              <div class="d-flex justify-content-between mb-2">
+                <span>Current Price:</span>
+                <span class="current-price"></span>
+              </div>
+              <div class="d-flex justify-content-between mb-2">
+                <span>PnL:</span>
+                <span class="pnl"></span>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="d-flex justify-content-between mb-2">
+                <span>Lot Size:</span>
+                <span class="lot-size"></span>
+              </div>
+              <div class="d-flex justify-content-between mb-2">
+                <span>Entry Time:</span>
+                <span class="entry-time"></span>
+              </div>
+              <div class="exit-details" style="display: none;">
+                <div class="d-flex justify-content-between mb-2">
+                  <span>Exit Price:</span>
+                  <span class="exit-price"></span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                  <span>Exit Time:</span>
+                  <span class="exit-time"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+  
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // DOM elements
+      const createTradeBtn = document.getElementById('createTradeBtn');
+      const squareOffBtn = document.getElementById('squareOffBtn');
+      const refreshBtn = document.getElementById('refreshBtn');
+      const createTradeResponse = document.getElementById('createTradeResponse');
+      const squareOffResponse = document.getElementById('squareOffResponse');
+      const squareOffOrderId = document.getElementById('squareOffOrderId');
+      const activeTrade = document.getElementById('activeTrade');
+      const eventLog = document.getElementById('eventLog');
+      
+      // Trade data
+      let currentTrade = null;
+      let priceUpdateInterval = null;
+      
+      // Add event to log
+      const addEventLog = (event, data) => {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.className = 'log-entry';
+        logEntry.innerHTML = `<span class="log-time">[${timeStr}]</span> <span class="log-event">${event}</span>: <span class="log-data">${JSON.stringify(data)}</span>`;
+        eventLog.appendChild(logEntry);
+        eventLog.scrollTop = eventLog.scrollHeight;
+      };
+      
+      // Create a trade
+      createTradeBtn.addEventListener('click', () => {
+        // Disable button
+        createTradeBtn.disabled = true;
+        
+        // Generate order ID
+        const orderId = 'ord_' + Math.random().toString(36).substring(2, 10);
+        
+        // Generate expiry date
+        const now = new Date();
+        const nextMonth = new Date(now.setMonth(now.getMonth() + 1));
+        const expiryDate = nextMonth.toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' });
+        
+        // Create trade data
+        currentTrade = {
+          _id: orderId,
+          actId: 'XJZE1',
+          exSeg: 'nse_fo',
+          trdSym: `NIFTY${nextMonth.getFullYear().toString().substring(2)}${(nextMonth.getMonth() + 1).toString().padStart(2, '0')}${nextMonth.getDate().toString().padStart(2, '0')}24000CE`,
+          sym: 'NIFTY',
+          type: 'OPTIDX',
+          optTp: 'CE',
+          stkPrc: '24000.00',
+          lotSz: 75,
+          flBuyQty: 75,
+          flSellQty: 0,
+          buyAmt: 6500.25,
+          sellAmt: 0,
+          cfBuyQty: 0,
+          cfSellQty: 0,
+          cfBuyAmt: 0,
+          cfSellAmt: 0,
+          expDt: expiryDate,
+          tok: '43854',
+          entryTime: new Date(),
+          entryPrice: 86.67,
+          exitTime: null,
+          exitPrice: null,
+          status: 'open',
+          unrealizedPnL: 0,
+          realizedPnL: null,
+          lastUpdated: new Date(),
+          currentLTP: 86.67
+        };
+        
+        // Show response
+        createTradeResponse.innerHTML = `<pre>${JSON.stringify({
+          success: true,
+          orderId: currentTrade._id,
+          message: 'Paper trade created successfully',
+          data: currentTrade
+        }, null, 2)}</pre>`;
+        createTradeResponse.style.display = 'block';
+        
+        // Update square off button
+        squareOffOrderId.textContent = currentTrade._id;
+        squareOffBtn.disabled = false;
+        
+        // Render trade card
+        renderTradeCard();
+        
+        // Start price updates
+        startPriceUpdates();
+        
+        // Log event
+        addEventLog('trade-executed', {
+          orderId: currentTrade._id,
+          entryPrice: currentTrade.entryPrice,
+          action: 'Buy',
+          symbol: currentTrade.sym,
+          strike: currentTrade.stkPrc,
+          optionType: currentTrade.optTp
+        });
+      });
+      
+      // Square off trade
+      squareOffBtn.addEventListener('click', () => {
+        // Disable button
+        squareOffBtn.disabled = true;
+        
+        // Stop price updates
+        stopPriceUpdates();
+        
+        // Update trade data
+        currentTrade.exitPrice = parseFloat((currentTrade.currentLTP).toFixed(2));
+        currentTrade.exitTime = new Date();
+        currentTrade.realizedPnL = parseFloat(((currentTrade.exitPrice - currentTrade.entryPrice) * currentTrade.lotSz).toFixed(2));
+        currentTrade.status = 'closed';
+        
+        // Show response
+        squareOffResponse.innerHTML = `<pre>${JSON.stringify({
+          success: true,
+          message: 'Paper trade squared off successfully',
+          data: currentTrade
+        }, null, 2)}</pre>`;
+        squareOffResponse.style.display = 'block';
+        
+        // Render trade card
+        renderTradeCard();
+        
+        // Log event
+        addEventLog('trade-squared-off', {
+          orderId: currentTrade._id,
+          exitPrice: currentTrade.exitPrice,
+          realizedPnL: currentTrade.realizedPnL,
+          entryPrice: currentTrade.entryPrice
+        });
+      });
+      
+      // Refresh button
+      refreshBtn.addEventListener('click', () => {
+        if (currentTrade) {
+          renderTradeCard();
+        }
+      });
+      
+      // Render trade card
+      const renderTradeCard = () => {
+        if (!currentTrade) {
+          activeTrade.innerHTML = `
+            <div class="col-12 text-center">
+              <p>No active trades</p>
+            </div>
+          `;
+          return;
+        }
+        
+        const template = document.getElementById('tradeCardTemplate');
+        const clone = document.importNode(template.content, true);
+        
+        // Set trade details
+        clone.querySelector('.trade-symbol').textContent = `${currentTrade.sym} ${currentTrade.stkPrc} ${currentTrade.optTp} ${currentTrade.flBuyQty > 0 ? 'Buy' : 'Sell'}`;
+        clone.querySelector('.badge').textContent = currentTrade.status;
+        clone.querySelector('.badge').classList.add(currentTrade.status === 'open' ? 'bg-success' : 'bg-secondary');
+        
+        clone.querySelector('.order-id').textContent = currentTrade._id;
+        clone.querySelector('.entry-price').textContent = currentTrade.entryPrice.toFixed(2);
+        clone.querySelector('.current-price').textContent = currentTrade.currentLTP.toFixed(2);
+        
+        const pnlElement = clone.querySelector('.pnl');
+        const pnlValue = currentTrade.status === 'open' ? currentTrade.unrealizedPnL : currentTrade.realizedPnL;
+        pnlElement.textContent = pnlValue ? pnlValue.toFixed(2) : '0.00';
+        pnlElement.classList.add(pnlValue > 0 ? 'profit' : pnlValue < 0 ? 'loss' : '');
+        
+        clone.querySelector('.lot-size').textContent = currentTrade.flBuyQty > 0 ? currentTrade.flBuyQty : currentTrade.flSellQty;
+        clone.querySelector('.entry-time').textContent = new Date(currentTrade.entryTime).toLocaleString();
+        
+        // Set exit details if closed
+        if (currentTrade.status === 'closed') {
+          const exitDetails = clone.querySelector('.exit-details');
+          exitDetails.style.display = 'block';
+          exitDetails.querySelector('.exit-price').textContent = currentTrade.exitPrice.toFixed(2);
+          exitDetails.querySelector('.exit-time').textContent = new Date(currentTrade.exitTime).toLocaleString();
+        }
+        
+        // Clear and append
+        activeTrade.innerHTML = '';
+        activeTrade.appendChild(clone);
+      };
+      
+      // Start price updates
+      const startPriceUpdates = () => {
+        if (!currentTrade || currentTrade.status === 'closed') return;
+        
+        priceUpdateInterval = setInterval(() => {
+          // Generate random price movement (±0.5% max)
+          const priceChange = currentTrade.currentLTP * (Math.random() * 0.01 - 0.005);
+          const newPrice = parseFloat((Math.max(0.05, currentTrade.currentLTP + priceChange)).toFixed(2));
+          
+          // Update current price
+          currentTrade.currentLTP = newPrice;
+          
+          // Calculate unrealized PnL
+          currentTrade.unrealizedPnL = parseFloat(((newPrice - currentTrade.entryPrice) * currentTrade.lotSz).toFixed(2));
+          
+          // Update last updated time
+          currentTrade.lastUpdated = new Date();
+          
+          // Render trade card
+          renderTradeCard();
+          
+          // Log events
+          addEventLog('market-update:43854', {
+            token: '43854',
+            ltp: newPrice
+          });
+          
+          addEventLog('pnl-update:' + currentTrade._id, {
+            orderId: currentTrade._id,
+            currentLTP: newPrice,
+            unrealizedPnL: currentTrade.unrealizedPnL
+          });
+        }, 5000); // Update every 5 seconds
+      };
+      
+      // Stop price updates
+      const stopPriceUpdates = () => {
+        if (priceUpdateInterval) {
+          clearInterval(priceUpdateInterval);
+          priceUpdateInterval = null;
+        }
+      };
+    });
+  </script>
+</body>
+</html>
